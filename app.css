@@ -1,0 +1,88 @@
+html, body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: system, -apple-system, ".SFNSDisplay-Regular", "Helvetica Neue", Helvetica, "Segoe UI", sans-serif;
+}
+
+.muted {
+  color: gray;
+}
+.thin {
+  font-weight: 300;
+}
+.flex-fill {
+  flex: 1;
+}
+.sep {
+  border-left: 1px solid #ddd;
+}
+
+.header {
+  display: flex;
+  background: #f7f7f7;
+  font-weight: 400;
+  border-bottom: 1px solid #ccc;
+  font-size: 13px;
+  height: 30px;
+}
+.header .site-info {
+  padding: 0.5rem;
+}
+.header .file-info {
+  padding: 0.5rem;
+}
+.header .btn {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+.header .btn:hover {
+  background: #eee;
+}
+
+.layout {
+  display: flex;
+  height: 100%;
+}
+.layout-nav {
+  flex: 0 0 200px;
+  background: #fff;
+  height: 100%;
+  overflow: auto;
+  border-right: 1px solid #ddd;
+}
+.layout-editor {
+  flex: 1;
+  height: 100%;
+}
+
+.filetree {
+  font-size: 13px;
+  color: #444;
+}
+.subtree {
+  padding-left: 1em;
+}
+.filetree .item {
+  padding: 5px 5px 5px 20px;
+  cursor: pointer;
+}
+.filetree .folder {
+  position: relative;
+}
+.filetree .folder > .icon-down-dir,
+.filetree .folder > .icon-right-dir {
+  font-size: 17px;
+  position: absolute;
+  left: 8px;
+  top: 3px;
+}
+.filetree .selected {
+  background: linear-gradient(to bottom, #ddd, #ccc);
+}
+
+#code {
+  height: calc(100vh - 30px);
+  width: 100%;
+}
