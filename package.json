@@ -4,6 +4,7 @@
   "description": "In-browser editor app.",
   "main": "index.js",
   "scripts": {
+    "build": "browserify -o app.build.js app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -22,6 +23,12 @@
   },
   "homepage": "https://github.com/beakerbrowser/beaker-editor-app#readme",
   "dependencies": {
-    "monaco-editor": "^0.8.1"
+    "builtin-pages-lib": "git://github.com/beakerbrowser/builtin-pages-lib#d4fac19387c3b448f82c7627a2a6afe7c345d69f",
+    "co": "^4.6.0",
+    "monaco-editor": "^0.8.1",
+    "yo-yo": "^1.4.0"
+  },
+  "devDependencies": {
+    "browserify": "^14.0.0"
   }
 }
