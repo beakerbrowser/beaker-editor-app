@@ -18,10 +18,13 @@ body {
 .sep {
   border-left: 1px solid #ddd;
 }
+.icon-info {
+  color: transparent;
+  -webkit-text-stroke: 1px #333;
+}
 
 .header {
   display: flex;
-  background: #f7f7f7;
   font-weight: 400;
   border-bottom: 1px solid #ccc;
   font-size: 13px;
@@ -47,14 +50,21 @@ body {
 }
 .layout-nav {
   flex: 0 0 200px;
-  background: #fff;
+  background: #f6f6f9;
   height: 100%;
   overflow: auto;
-  border-right: 1px solid #ddd;
 }
 .layout-editor {
   flex: 1;
   height: 100%;
+}
+
+.sitetitle {
+  font-size: 11px;
+  padding: 0.5rem;
+  background: #e0e0e6;
+  text-transform: uppercase;
+  font-weight: 500;
 }
 
 .filetree {
@@ -67,6 +77,11 @@ body {
 .filetree .item {
   padding: 5px 5px 5px 20px;
   cursor: pointer;
+  white-space: nowrap;
+  -webkit-user-select: none;
+}
+.filetree .item:hover {
+  background: #ededf0;
 }
 .filetree .folder {
   position: relative;
@@ -79,7 +94,8 @@ body {
   top: 3px;
 }
 .filetree .selected {
-  background: linear-gradient(to bottom, #ddd, #ccc);
+  background: #4766ff;
+  color: #fff;
 }
 
 #code {

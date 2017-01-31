@@ -2,29 +2,37 @@
 const yo = require('yo-yo')
 const co = require('co')
 const {Archive} = require('builtin-pages-lib')
-const rFileTree = require('./com/file-tree')
+const rFileTree = require('./lib/com/file-tree')
+const models = require('./lib/models')
 
 const URL = 'ff34725120b2f3c5bd5028e4f61d14a45a22af48a7b12126d5d588becde88a93'
+const archive = new Archive()
 
 co(function * () {
   // load the archive
   console.log('Loading', URL)
-  var archive = new Archive()
   yield archive.fetchInfo(URL)
+  renderNav()
+}).catch(console.error.bind(console, 'Failed to load'))
 
-  // render
+function renderNav () {
   yo.update(
     document.querySelector('.layout-nav'),
     yo`<div class="layout-nav">
-      <div class="header">
-        <div class="btn flex-fill">Hostless Website Portal</div>
-      </div>
+      <div class="sitetitle">${archive.info.title}</div>
       ${rFileTree(archive)}
     </div>`
   )
-  console.log('done')
-}).catch(console.error.bind(console, 'Failed to load'))
-},{"./com/file-tree":2,"builtin-pages-lib":11,"co":16,"yo-yo":47}],2:[function(require,module,exports){
+}
+
+window.addEventListener('editor-created', () => {
+  models.setActive(archive, 'index.html')
+})
+
+window.addEventListener('change-model', () => {
+  renderNav()
+})
+},{"./lib/com/file-tree":2,"./lib/models":3,"builtin-pages-lib":42,"co":10,"yo-yo":38}],2:[function(require,module,exports){
 const yo = require('yo-yo')
 
 // exported api
@@ -61,7 +69,20 @@ function rFileTree (archive) {
 }
 
 function rChildren (archive, children) {
-  return Object.keys(children).map(name => rNode(archive, children[name]))
+  return Object.keys(children)
+    .map(key => children[key])
+    .sort(treeSorter)
+    .map(node => rNode(archive, node))
+}
+
+function treeSorter (a, b) {
+  // directories at top
+  if (a.entry.type == 'directory' && b.entry.type != 'directory')
+    return -1
+  if (a.entry.type != 'directory' && b.entry.type == 'directory')
+    return 1
+  // by name
+  return a.entry.name.localeCompare(b.entry.name)
 }
 
 function rNode (archive, node) {
@@ -94,8 +115,9 @@ function rDirectory (archive, node) {
 }
 
 function rFile (archive, node) {
+  const cls = (archive.files.currentNode === node) ? 'selected' : ''
   return yo`
-    <div class="item file">${node.entry.name}</div>
+    <div class="item file ${cls}">${node.entry.name}</div>
   `
 }
 
@@ -108,7 +130,60 @@ function onClickDirectory (e, archive, node) {
   redraw(archive)
 }
 
-},{"yo-yo":47}],3:[function(require,module,exports){
+},{"yo-yo":38}],3:[function(require,module,exports){
+const co = require('co')
+
+// globals
+// =
+
+var models = {}
+
+// exported api
+// =
+
+const load = co.wrap(function * (archive, path) {
+  path = normalizePath(path)
+  const url = getUrl(archive, path)
+  const res = yield fetch(url)
+  const str = yield res.text()
+  const type = getType(url)
+  models[path] = monaco.editor.createModel(str, type, url)
+})
+
+const setActive = co.wrap(function * (archive, path) {
+  path = normalizePath(path)
+
+  // load if not yet loaded
+  if (!(path in models)) {
+    yield load(archive, path)
+  }
+
+  // set active
+  var names = path.split('/')
+  archive.files.setCurrentNodeByPath(names, {allowFiles: true})
+  editor.setModel(models[path])
+  window.dispatchEvent(new Event('change-model'))
+})
+
+module.exports = {load, setActive}
+
+// internal methods
+// =
+
+function normalizePath (path) {
+  if (path.startsWith('/')) return path.slice(1)
+  return path
+}
+
+function getUrl (archive, path) {
+  return `dat://${archive.info.key}/${path}`
+}
+
+function getType (url) {
+  // TODO
+  return 'html'
+}
+},{"co":10}],4:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -224,7 +299,7 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 var document = require('global/document')
 var hyperx = require('hyperx')
 var onload = require('on-load')
@@ -375,9 +450,9 @@ module.exports = hyperx(belCreateElement)
 module.exports.default = module.exports
 module.exports.createElement = belCreateElement
 
-},{"global/document":20,"hyperx":23,"on-load":29}],5:[function(require,module,exports){
+},{"global/document":13,"hyperx":16,"on-load":22}],6:[function(require,module,exports){
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -559,7 +634,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -671,7 +746,7 @@ exports.allocUnsafeSlow = function allocUnsafeSlow(size) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"buffer":8}],8:[function(require,module,exports){
+},{"buffer":9}],9:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -2378,650 +2453,7 @@ function isnan (val) {
   return val !== val // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":3,"ieee754":24}],9:[function(require,module,exports){
-const yo = require('yo-yo')
-
-function writeToClipboard (str) {
-  var textarea = yo`<textarea>${str}</textarea>`
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
-}
-exports.writeToClipboard = writeToClipboard
-},{"yo-yo":47}],10:[function(require,module,exports){
-
-// Underscore.js
-// Returns a function, that, when invoked, will only be triggered at most once
-// during a given window of time. Normally, the throttled function will run
-// as much as it can, without ever going more than once per `wait` duration;
-// but if you'd like to disable the execution on the leading edge, pass
-// `{leading: false}`. To disable execution on the trailing edge, ditto.
-exports.throttle = function throttle (func, wait, options) {
-  var timeout, context, args, result;
-  var previous = 0;
-  if (!options) options = {};
-
-  var later = function() {
-    previous = options.leading === false ? 0 : Date.now();
-    timeout = null;
-    result = func.apply(context, args);
-    if (!timeout) context = args = null;
-  };
-
-  var throttled = function() {
-    var now = Date.now();
-    if (!previous && options.leading === false) previous = now;
-    var remaining = wait - (now - previous);
-    context = this;
-    args = arguments;
-    if (remaining <= 0 || remaining > wait) {
-      if (timeout) {
-        clearTimeout(timeout);
-        timeout = null;
-      }
-      previous = now;
-      result = func.apply(context, args);
-      if (!timeout) context = args = null;
-    } else if (!timeout && options.trailing !== false) {
-      timeout = setTimeout(later, remaining);
-    }
-    return result;
-  };
-
-  throttled.cancel = function() {
-    clearTimeout(timeout);
-    previous = 0;
-    timeout = context = args = null;
-  };
-
-  return throttled;
-}
-
-// Underscore.js
-// Returns a function, that, as long as it continues to be invoked, will not
-// be triggered. The function will be called after it stops being called for
-// N milliseconds. If `immediate` is passed, trigger the function on the
-// leading edge, instead of the trailing.
-exports.debounce = function debounce (func, wait, immediate) {
-  var timeout, result;
-
-  var later = function(context, args) {
-    timeout = null;
-    if (args) result = func.apply(context, args);
-  };
-
-  var debounced = function(...args) {
-    if (timeout) clearTimeout(timeout);
-    if (immediate) {
-      var callNow = !timeout;
-      timeout = setTimeout(later, wait);
-      if (callNow) result = func.apply(this, args);
-    } else {
-      timeout = setTimeout(() => later(this, args), wait)
-    }
-
-    return result;
-  };
-
-  debounced.cancel = function() {
-    clearTimeout(timeout);
-    timeout = null;
-  };
-
-  return debounced;
-};
-},{}],11:[function(require,module,exports){
-module.exports = {
-  ArchiveFiles: require('./model/archive-files'),
-  Archive: require('./model/archive'),
-  ArchivesList: require('./model/archives-list'),
-  DownloadsList: require('./model/downloads-list')
-}
-},{"./model/archive":13,"./model/archive-files":12,"./model/archives-list":14,"./model/downloads-list":15}],12:[function(require,module,exports){
-const co = require('co')
-
-// exported api
-// =
-
-module.exports = class ArchiveFiles {
-  constructor (archiveInfo) {
-    var m = archiveInfo.manifest
-
-    this.archiveKey = archiveInfo.key
-    // root node is the archive itself
-    this.rootNode = createRootNode(archiveInfo)
-    // current node: used by the UI for rendering
-    this.currentNode = this.rootNode
-
-    // iterate the list, recurse the path... build the tree!
-    archiveInfo.entries.forEach(e => addEntry(this.rootNode, splitPath(e.name), e))
-    function addEntry (parent, path, entry) {
-      // ignore a "root directory" if present, in favor of the one we created already
-      if (!entry.name || entry.name == '/')
-        return
-
-      // take a name off the path
-      var name = path.shift()
-
-      // add children if needed
-      parent.children = parent.children || {}
-
-      if (path.length === 0) {
-        // end of path, add entry
-        parent.children[name] = parent.children[name] || {} // only create if DNE yet
-        parent.children[name].parent = parent
-        parent.children[name].entry = entry
-        parent.children[name].entry.path = removePrecedingSlash(entry.name)
-        parent.children[name].entry.name = name
-      } else {
-        // an ancestor directory, ensure the dir exists
-        parent.children[name] = parent.children[name] || createDirectoryNode(name, parent.entry.path+name+'/', parent)
-        // descend
-        addEntry(parent.children[name], path, entry)
-      }
-    }
-
-    // recurse the tree and tally the blocks, lengths, and download amounts
-    descend(this.rootNode)
-    function descend (node) {
-      if (node.entry.type == 'directory') {
-        // reset numbers
-        node.entry.length = 0
-        node.entry.blocks = 0
-        node.entry.downloadedBlocks = 0
-      } else {
-        // calculate progress
-        node.entry.downloadedBlocks = countDownloadedBlocks(archiveInfo, node.entry)
-      }
-      
-      // iterate children
-      for (var k in node.children) {
-        descend(node.children[k])
-      }
-
-      // propagate size and progress to parent
-      if (node.parent) {
-        node.parent.entry.length += node.entry.length
-        node.parent.entry.blocks += node.entry.blocks
-        node.parent.entry.downloadedBlocks += node.entry.downloadedBlocks
-      }
-    }
-  }
-
-  setCurrentNodeByPath(names) {
-    this.currentNode = this.rootNode
-    if (names.length === 0 || names[0] == '')
-      return // at root
-
-    // descend to the correct node (or as far as possible)
-    for (var i=0; i < names.length; i++) {
-      var child = this.currentNode.children[names[i]]
-      if (!child || child.entry.type != 'directory')
-        return // child dir not found, stop here
-      this.currentNode = child
-    }
-  }
-
-  get progress() {
-    let entry = this.rootNode.entry
-    return Math.round(entry.downloadedBlocks / entry.blocks * 100)
-  }
-
-  download(node) {
-    var self = this
-    node = node || this.rootNode
-
-    // recursively start downloads
-    co(function *() {
-      yield startDownload(node)
-    })
-
-    function * startDownload (n) {
-      // do nothing if already downloaded
-      if (n.entry.downloadedBlocks === n.entry.blocks) {
-        return Promise.resolve()
-      }
-
-      // progress starting
-      n.entry.isDownloading = true
-
-      if (n.entry.type === 'file') {
-        // download entry
-        yield datInternalAPI.downloadArchiveEntry(self.archiveKey, n.entry.path)
-      } else if (n.entry.type === 'directory') {
-        // recurse to children
-        yield Object.keys(n.children).map(k => startDownload(n.children[k]))
-      }
-
-      // done
-      n.entry.isDownloading = false
-      return Promise.resolve()
-    }
-  }
-}
-
-function createRootNode (archiveInfo) {
-  return {
-    parent: null,
-    entry: {
-      type: 'directory',
-      name: archiveInfo.title || '/',
-      path: '',
-      key: archiveInfo.key,
-      length: 0,
-      blocks: 0,
-      downloadedBlocks: 0
-    },
-    children: {}
-  }
-}
-
-function createDirectoryNode (name, path, parent) {
-  return {
-    entry: {
-      type: 'directory',
-      name,
-      path,
-      length: 0,
-      blocks: 0,
-      downloadedBlocks: 0
-    },
-    parent
-  }
-}
-
-// helper to detect if the content block is available
-function hasBlock (archiveInfo, index) {
-  var bit = index & 7
-  var byte = (index - bit) / 8
-  if (byte >= archiveInfo.contentBitfield.length) return false
-  return !!(archiveInfo.contentBitfield[byte] & (128 >> bit))
-}
-
-// helper to determine what % an entry is downloaded
-function countDownloadedBlocks (archiveInfo, entry) {
-  // count # of downloaded blocks
-  var downloadedBlocks = 0
-  var offset = entry.content.blockOffset
-  for (var i=0; i < entry.blocks; i++) {
-    if (hasBlock(archiveInfo, i + offset))
-      downloadedBlocks++
-  }
-  return downloadedBlocks
-}
-
-function removePrecedingSlash (str) {
-  return str.replace(/^\//, '')
-}
-
-function splitPath (str) {
-  if (!str || typeof str != 'string') return []
-  return str
-    .replace(/(^\/*)|(\/*$)/g, '') // skip any preceding or following slashes
-    .split('/')
-}
-},{"co":16}],13:[function(require,module,exports){
-const co = require('co')
-const emitStream = require('emit-stream')
-const EventEmitter = require('events')
-const ArchiveFiles = require('./archive-files')
-const { throttle } = require('../functions')
-
-// constants
-// =
-
-// how much time to wait between throttle emits
-const EMIT_CHANGED_WAIT = 30
-
-// globals
-// =
-
-// emit-stream for archive events, only one per document is needed
-var archivesEvents
-
-// exported api
-// =
-
-module.exports = class Archive extends EventEmitter {
-  constructor () {
-    super()
-
-    // declare attributes
-    this.info = null
-    this.files = null
-
-    // wire up events
-    if (!archivesEvents) {
-      archivesEvents = emitStream(datInternalAPI.archivesEventStream())
-    }
-    this.createEventHandlers()
-    archivesEvents.on('update-archive', this.handlers.onUpdateArchive)
-    archivesEvents.on('update-listing', this.handlers.onUpdateListing)
-    archivesEvents.on('download', this.handlers.onDownload)
-
-    // create a throttled 'change' emiter
-    this.emitChanged = throttle(() => this.emit('changed'), EMIT_CHANGED_WAIT)
-  }
-
-  fetchInfo (archiveKey) {
-    var self = this
-    return co(function * () {
-      self.info = yield datInternalAPI.getArchiveDetails(archiveKey, {
-        readme: true,
-        entries: true,
-        contentBitfield: true
-      })
-      self.files = (self.info) ? new ArchiveFiles(self.info) : null
-      console.log(self.info)
-      console.log(self.files)
-    })
-  }
-
-  destroy () {
-    // unwire events
-    this.removeAllListeners()
-    archivesEvents.removeListener('update-archive', this.handlers.onUpdateArchive)
-    archivesEvents.removeListener('update-listing', this.handlers.onUpdateListing)
-    archivesEvents.removeListener('download', this.handlers.onDownload)
-  }
-
-  // getters
-  //
-
-  get niceName () {
-    return this.info.title || 'Untitled'
-  }
-
-  get isSaved () {
-    return this.info.userSettings.isSaved
-  }
-
-  get forkOf () {
-    return this.info.forkOf && this.info.forkOf[0]
-  }
-
-  // utilities
-  // =
-
-  openInExplorer() {
-    datInternalAPI.openInExplorer(this.info.key)
-  }
-
-  toggleSaved() {
-    if (this.isSaved) {
-      datInternalAPI.setArchiveUserSettings(this.info.key, { isSaved: false }).then(settings => {
-        this.info.userSettings.isSaved = false
-        this.emitChanged()
-      })
-    } else {
-      datInternalAPI.setArchiveUserSettings(this.info.key, { isSaved: true }).then(settings => {
-        this.info.userSettings.isSaved = true
-        this.emitChanged()
-      })
-    }
-  }
-
-  updateManifest({ title, description }) {
-    // send write to the backend
-    datInternalAPI.updateArchiveManifest(this.info.key, { title, description })
-      .catch(console.warn.bind(console, 'Failed to update manifest'))
-  }
-
-  // event handlers
-  // =
-
-  createEventHandlers() {
-    this.handlers = {
-      onUpdateArchive: update => {
-        if (this.info && update.key === this.info.key) {
-          // patch the archive
-          for (var k in update)
-            this.info[k] = update[k]
-          this.emitChanged()
-        }
-      },
-      onUpdateListing: update => {
-        if (this.info && update.key === this.info.key) {
-          // simplest solution is just to refetch the entries
-          this.fetchInfo(this.info.key)
-        }
-      },
-      onDownload: update => {
-        if (this.info && update.key === this.info.key && update.feed === 'content') {
-          // increment root's downloaded blocks
-          this.files.rootNode.entry.downloadedBlocks++
-
-          // find the file and folders this update belongs to and increment their downloaded blocks
-          for (var i=0; i < this.info.entries.length; i++) {
-            var entry = this.info.entries[i]
-            var index = update.index - entry.content.blockOffset
-            if (index >= 0 && index < entry.blocks)
-              entry.downloadedBlocks++ // update the entry
-          }
-
-          this.emitChanged()
-        }
-      }
-    }
-  }
-}
-
-},{"../functions":10,"./archive-files":12,"co":16,"emit-stream":18,"events":19}],14:[function(require,module,exports){
-const co = require('co')
-const emitStream = require('emit-stream')
-const speedometer = require('speedometer')
-const EventEmitter = require('events')
-const { throttle, debounce } = require('../functions')
-
-// constants
-// =
-
-// how much time to wait between throttle emits
-const EMIT_CHANGED_WAIT = 500
-
-// globals
-// =
-
-// emit-stream for archive events, only one per document is needed
-var archivesEvents
-
-// exported api
-// =
-
-module.exports = class ArchivesList extends EventEmitter {
-  constructor () {
-    super()
-
-    // declare attributes
-    this.archives = []
-
-    // bind the event handlers
-    this.onUpdateArchive = e => this._onUpdateArchive(e)
-    this.onUpdateUserSettings = e => this._onUpdateUserSettings(e)
-
-    // wire up events
-    if (!archivesEvents) {
-      archivesEvents = emitStream(datInternalAPI.archivesEventStream())
-    }
-    archivesEvents.on('update-archive', this.onUpdateArchive)
-    archivesEvents.on('update-user-settings', this.onUpdateUserSettings)
-
-    // create a throttled 'change' emiter
-    this.emitChanged = throttle(() => this.emit('changed'), EMIT_CHANGED_WAIT)
-  }
-
-  setup ({ filter, fetchStats } = {}) {
-    var self = this
-    return co(function * () {
-      // fetch archives
-      self.archives = yield datInternalAPI.queryArchives(filter, { includeMeta: true })
-      self.archives.sort(archiveSortFn)
-      // fetch stats
-      if (fetchStats) {
-        var stats = yield Promise.all(self.archives.map(a => datInternalAPI.getArchiveStats(a.key)))
-        self.archives.forEach((archive, i) => {
-          archive.stats = stats[i]
-          archive.stats.downloadSpeed = speedometer()
-        })
-      }
-    })
-  }
-
-  destroy () {
-    // unwire events
-    this.removeAllListeners()
-    archivesEvents.removeListener('update-archive', this.onUpdateArchive)
-  }
-
-  // event handlers
-  // =
-
-  _onUpdateArchive (update) {
-    // find the archive being updated
-    var archive = this.archives.find(a => a.key === update.key)
-    if (archive) {
-      // patch the archive
-      for (var k in update)
-        archive[k] = update[k]
-      this.emitChanged()
-    }
-  }
-
-  _onUpdateUserSettings (update) {
-    // find the archive being updated
-    var archive = this.archives.find(a => a.key === update.key)
-    if (archive) {
-      // patch the archive
-      for (var k in update)
-        archive.userSettings[k] = update[k]
-      this.emitChanged()
-    }
-  }
-}
-
-// helpers
-// =
-
-function archiveSortFn (a, b) {
-  return b.mtime - a.mtime
-}
-
-},{"../functions":10,"co":16,"emit-stream":18,"events":19,"speedometer":42}],15:[function(require,module,exports){
-const co = require('co')
-const emitStream = require('emit-stream')
-const EventEmitter = require('events')
-const { writeToClipboard } = require('../events')
-
-// globals
-// =
-
-// emit-stream for download events, only one per document is needed
-var dlEvents
-
-// exported api
-// =
-
-module.exports = class DownloadsList extends EventEmitter {
-  constructor () {
-    super()
-
-    // declare attributes
-    this.downloads = []
-
-    // bind the event handlers
-    this.onNewDownload = e => this._onNewDownload(e)
-    this.onUpdateDownload = e => this._onUpdateDownload(e)
-
-    // wire up events
-    if (!dlEvents) {
-      dlEvents = emitStream(beakerDownloads.eventsStream())
-    }
-    dlEvents.on('new-download', this.onNewDownload)
-    dlEvents.on('updated', this.onUpdateDownload)
-    dlEvents.on('done', this.onUpdateDownload)
-  }
-
-  setup () {
-    var self = this
-    return co(function * () {
-      // fetch downloads
-      self.downloads = yield beakerDownloads.getDownloads()
-    })
-  }
-
-  destroy () {
-    // unwire events
-    this.removeAllListeners()
-    dlEvents.removeListener('new-download', this.onNewDownload)
-    dlEvents.removeListener('updated', this.onUpdateDownload)
-    dlEvents.removeListener('done', this.onUpdateDownload)
-  }
-
-  // actions
-  // =
-
-  pauseDownload (download) {
-    beakerDownloads.pause(download.id)
-  }
-
-  resumeDownload (download) {
-    beakerDownloads.resume(download.id)
-  }
-
-  cancelDownload (download) {
-    beakerDownloads.cancel(download.id)
-  }
-
-  copyDownloadLink (download) {
-    writeToClipboard(download.url)
-  }
-
-  showDownload (download) {
-    beakerDownloads.showInFolder(download.id)
-      .catch(err => {
-        download.fileNotFound = true
-        this.emit('changed')
-      })
-  }
-
-  openDownload (download) {
-    beakerDownloads.open(download.id)
-      .catch(err => {
-        download.fileNotFound = true
-        this.emit('changed')
-      })
-  }
-
-  removeDownload (download) {
-    beakerDownloads.remove(download.id)
-    this.downloads.splice(this.downloads.indexOf(download), 1)
-    this.emit('changed')
-  }
-
-  // event handlers
-  // =
-
-  _onNewDownload () {
-    // do a little animation
-    // TODO
-  }
-
-  _onUpdateDownload (download) {
-    // patch data each time we get an update
-    var target = this.downloads.find(d => d.id === download.id)
-    if (target) {
-      // patch item
-      for (var k in download)
-        target[k] = download[k]
-    } else {
-      this.downloads.push(download)
-    }
-    this.emit('changed')
-  }
-}
-
-},{"../events":9,"co":16,"emit-stream":18,"events":19}],16:[function(require,module,exports){
+},{"base64-js":4,"ieee754":17}],10:[function(require,module,exports){
 
 /**
  * slice() reference.
@@ -3260,7 +2692,7 @@ function isObject(val) {
   return Object == val.constructor;
 }
 
-},{}],17:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 (function (Buffer){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -3371,56 +2803,7 @@ function objectToString(o) {
 }
 
 }).call(this,{"isBuffer":require("../../is-buffer/index.js")})
-},{"../../is-buffer/index.js":26}],18:[function(require,module,exports){
-var EventEmitter = require('events').EventEmitter;
-var through = require('through');
-
-exports = module.exports = function (ev) {
-    if (typeof ev.pipe === 'function') {
-        return exports.fromStream(ev);
-    }
-    else return exports.toStream(ev)
-};
-
-exports.toStream = function (ev) {
-    var s = through(
-        function write (args) {
-            this.emit('data', args);
-        },
-        function end () {
-            var ix = ev._emitStreams.indexOf(s);
-            ev._emitStreams.splice(ix, 1);
-        }
-    );
-    
-    if (!ev._emitStreams) {
-        ev._emitStreams = [];
-        
-        var emit = ev.emit;
-        ev.emit = function () {
-            var args = [].slice.call(arguments);
-            ev._emitStreams.forEach(function (es) {
-                es.writable && es.write(args);
-            });
-            emit.apply(ev, arguments);
-        };
-    }
-    ev._emitStreams.push(s);
-    
-    return s;
-};
-
-exports.fromStream = function (s) {
-    var ev = new EventEmitter;
-    
-    s.pipe(through(function (args) {
-        ev.emit.apply(ev, args);
-    }));
-    
-    return ev;
-};
-
-},{"events":19,"through":45}],19:[function(require,module,exports){
+},{"../../is-buffer/index.js":19}],12:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -3724,7 +3107,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],20:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 (function (global){
 var topLevel = typeof global !== 'undefined' ? global :
     typeof window !== 'undefined' ? window : {}
@@ -3743,7 +3126,7 @@ if (typeof document !== 'undefined') {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"min-document":5}],21:[function(require,module,exports){
+},{"min-document":6}],14:[function(require,module,exports){
 (function (global){
 if (typeof window !== "undefined") {
     module.exports = window;
@@ -3756,7 +3139,7 @@ if (typeof window !== "undefined") {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],22:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 module.exports = attributeToProperty
 
 var transform = {
@@ -3777,7 +3160,7 @@ function attributeToProperty (h) {
   }
 }
 
-},{}],23:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 var attrToProp = require('hyperscript-attribute-to-property')
 
 var VAR = 0, TEXT = 1, OPEN = 2, CLOSE = 3, ATTR = 4
@@ -4042,7 +3425,7 @@ var closeRE = RegExp('^(' + [
 ].join('|') + ')(?:[\.#][a-zA-Z0-9\u007F-\uFFFF_:-]+)*$')
 function selfClosing (tag) { return closeRE.test(tag) }
 
-},{"hyperscript-attribute-to-property":22}],24:[function(require,module,exports){
+},{"hyperscript-attribute-to-property":15}],17:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = nBytes * 8 - mLen - 1
@@ -4128,7 +3511,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],25:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -4153,7 +3536,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],26:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 /*!
  * Determine if an object is a Buffer
  *
@@ -4176,14 +3559,14 @@ function isSlowBuffer (obj) {
   return typeof obj.readFloatLE === 'function' && typeof obj.slice === 'function' && isBuffer(obj.slice(0, 0))
 }
 
-},{}],27:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 var toString = {}.toString;
 
 module.exports = Array.isArray || function (arr) {
   return toString.call(arr) == '[object Array]';
 };
 
-},{}],28:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 var range; // Create a range object for efficently rendering strings to elements.
@@ -4858,7 +4241,7 @@ var morphdom = morphdomFactory(morphAttrs);
 
 module.exports = morphdom;
 
-},{}],29:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 /* global MutationObserver */
 var document = require('global/document')
 var window = require('global/window')
@@ -4947,7 +4330,7 @@ function eachMutation (nodes, fn) {
   }
 }
 
-},{"global/document":20,"global/window":21}],30:[function(require,module,exports){
+},{"global/document":13,"global/window":14}],23:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -4994,10 +4377,10 @@ function nextTick(fn, arg1, arg2, arg3) {
 }
 
 }).call(this,require('_process'))
-},{"_process":6}],31:[function(require,module,exports){
+},{"_process":7}],24:[function(require,module,exports){
 module.exports = require("./lib/_stream_duplex.js")
 
-},{"./lib/_stream_duplex.js":32}],32:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":25}],25:[function(require,module,exports){
 // a duplex stream is just a stream that is both readable and writable.
 // Since JS doesn't have multiple prototypal inheritance, this class
 // prototypally inherits from Readable, and then parasitically from
@@ -5073,7 +4456,7 @@ function forEach(xs, f) {
     f(xs[i], i);
   }
 }
-},{"./_stream_readable":34,"./_stream_writable":36,"core-util-is":17,"inherits":25,"process-nextick-args":30}],33:[function(require,module,exports){
+},{"./_stream_readable":27,"./_stream_writable":29,"core-util-is":11,"inherits":18,"process-nextick-args":23}],26:[function(require,module,exports){
 // a passthrough stream.
 // basically just the most minimal sort of Transform stream.
 // Every written chunk gets output as-is.
@@ -5100,7 +4483,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":35,"core-util-is":17,"inherits":25}],34:[function(require,module,exports){
+},{"./_stream_transform":28,"core-util-is":11,"inherits":18}],27:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -6044,7 +5427,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this,require('_process'))
-},{"./_stream_duplex":32,"./internal/streams/BufferList":37,"_process":6,"buffer":8,"buffer-shims":7,"core-util-is":17,"events":19,"inherits":25,"isarray":27,"process-nextick-args":30,"string_decoder/":44,"util":5}],35:[function(require,module,exports){
+},{"./_stream_duplex":25,"./internal/streams/BufferList":30,"_process":7,"buffer":9,"buffer-shims":8,"core-util-is":11,"events":12,"inherits":18,"isarray":20,"process-nextick-args":23,"string_decoder/":36,"util":6}],28:[function(require,module,exports){
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
 // but that's not a great name for it, since that implies a thing where
@@ -6227,7 +5610,7 @@ function done(stream, er, data) {
 
   return stream.push(null);
 }
-},{"./_stream_duplex":32,"core-util-is":17,"inherits":25}],36:[function(require,module,exports){
+},{"./_stream_duplex":25,"core-util-is":11,"inherits":18}],29:[function(require,module,exports){
 (function (process){
 // A bit simpler than readable streams.
 // Implement an async ._write(chunk, encoding, cb), and it'll handle all
@@ -6784,7 +6167,7 @@ function CorkedRequest(state) {
   };
 }
 }).call(this,require('_process'))
-},{"./_stream_duplex":32,"_process":6,"buffer":8,"buffer-shims":7,"core-util-is":17,"events":19,"inherits":25,"process-nextick-args":30,"util-deprecate":46}],37:[function(require,module,exports){
+},{"./_stream_duplex":25,"_process":7,"buffer":9,"buffer-shims":8,"core-util-is":11,"events":12,"inherits":18,"process-nextick-args":23,"util-deprecate":37}],30:[function(require,module,exports){
 'use strict';
 
 var Buffer = require('buffer').Buffer;
@@ -6849,10 +6232,10 @@ BufferList.prototype.concat = function (n) {
   }
   return ret;
 };
-},{"buffer":8,"buffer-shims":7}],38:[function(require,module,exports){
+},{"buffer":9,"buffer-shims":8}],31:[function(require,module,exports){
 module.exports = require("./lib/_stream_passthrough.js")
 
-},{"./lib/_stream_passthrough.js":33}],39:[function(require,module,exports){
+},{"./lib/_stream_passthrough.js":26}],32:[function(require,module,exports){
 (function (process){
 var Stream = (function (){
   try {
@@ -6872,50 +6255,13 @@ if (!process.browser && process.env.READABLE_STREAM === 'disable' && Stream) {
 }
 
 }).call(this,require('_process'))
-},{"./lib/_stream_duplex.js":32,"./lib/_stream_passthrough.js":33,"./lib/_stream_readable.js":34,"./lib/_stream_transform.js":35,"./lib/_stream_writable.js":36,"_process":6}],40:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":25,"./lib/_stream_passthrough.js":26,"./lib/_stream_readable.js":27,"./lib/_stream_transform.js":28,"./lib/_stream_writable.js":29,"_process":7}],33:[function(require,module,exports){
 module.exports = require("./lib/_stream_transform.js")
 
-},{"./lib/_stream_transform.js":35}],41:[function(require,module,exports){
+},{"./lib/_stream_transform.js":28}],34:[function(require,module,exports){
 module.exports = require("./lib/_stream_writable.js")
 
-},{"./lib/_stream_writable.js":36}],42:[function(require,module,exports){
-var tick = 1
-var maxTick = 65535
-var resolution = 4
-var inc = function () {
-  tick = (tick + 1) & maxTick
-}
-
-var timer = setInterval(inc, (1000 / resolution) | 0)
-if (timer.unref) timer.unref()
-
-module.exports = function (seconds) {
-  var size = resolution * (seconds || 5)
-  var buffer = [0]
-  var pointer = 1
-  var last = (tick - 1) & maxTick
-
-  return function (delta) {
-    var dist = (tick - last) & maxTick
-    if (dist > size) dist = size
-    last = tick
-
-    while (dist--) {
-      if (pointer === size) pointer = 0
-      buffer[pointer] = buffer[pointer === 0 ? size - 1 : pointer - 1]
-      pointer++
-    }
-
-    if (delta) buffer[pointer - 1] += delta
-
-    var top = buffer[pointer - 1]
-    var btm = buffer.length < size ? 0 : buffer[pointer === size ? 0 : pointer]
-
-    return buffer.length < resolution ? top : (top - btm) * resolution / buffer.length
-  }
-}
-
-},{}],43:[function(require,module,exports){
+},{"./lib/_stream_writable.js":29}],35:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7044,7 +6390,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":19,"inherits":25,"readable-stream/duplex.js":31,"readable-stream/passthrough.js":38,"readable-stream/readable.js":39,"readable-stream/transform.js":40,"readable-stream/writable.js":41}],44:[function(require,module,exports){
+},{"events":12,"inherits":18,"readable-stream/duplex.js":24,"readable-stream/passthrough.js":31,"readable-stream/readable.js":32,"readable-stream/transform.js":33,"readable-stream/writable.js":34}],36:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7267,7 +6613,905 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":8}],45:[function(require,module,exports){
+},{"buffer":9}],37:[function(require,module,exports){
+(function (global){
+
+/**
+ * Module exports.
+ */
+
+module.exports = deprecate;
+
+/**
+ * Mark that a method should not be used.
+ * Returns a modified function which warns once by default.
+ *
+ * If `localStorage.noDeprecation = true` is set, then it is a no-op.
+ *
+ * If `localStorage.throwDeprecation = true` is set, then deprecated functions
+ * will throw an Error when invoked.
+ *
+ * If `localStorage.traceDeprecation = true` is set, then deprecated functions
+ * will invoke `console.trace()` instead of `console.error()`.
+ *
+ * @param {Function} fn - the function to deprecate
+ * @param {String} msg - the string to print to the console when `fn` is invoked
+ * @returns {Function} a new "deprecated" version of `fn`
+ * @api public
+ */
+
+function deprecate (fn, msg) {
+  if (config('noDeprecation')) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (config('throwDeprecation')) {
+        throw new Error(msg);
+      } else if (config('traceDeprecation')) {
+        console.trace(msg);
+      } else {
+        console.warn(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+}
+
+/**
+ * Checks `localStorage` for boolean values for the given `name`.
+ *
+ * @param {String} name
+ * @returns {Boolean}
+ * @api private
+ */
+
+function config (name) {
+  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
+  try {
+    if (!global.localStorage) return false;
+  } catch (_) {
+    return false;
+  }
+  var val = global.localStorage[name];
+  if (null == val) return false;
+  return String(val).toLowerCase() === 'true';
+}
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],38:[function(require,module,exports){
+var bel = require('bel') // turns template tag into DOM elements
+var morphdom = require('morphdom') // efficiently diffs + morphs two DOM elements
+var defaultEvents = require('./update-events.js') // default events to be copied when dom elements update
+
+module.exports = bel
+
+// TODO move this + defaultEvents to a new module once we receive more feedback
+module.exports.update = function (fromNode, toNode, opts) {
+  if (!opts) opts = {}
+  if (opts.events !== false) {
+    if (!opts.onBeforeElUpdated) opts.onBeforeElUpdated = copier
+  }
+
+  return morphdom(fromNode, toNode, opts)
+
+  // morphdom only copies attributes. we decided we also wanted to copy events
+  // that can be set via attributes
+  function copier (f, t) {
+    // copy events:
+    var events = opts.events || defaultEvents
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i]
+      if (t[ev]) { // if new element has a whitelisted attribute
+        f[ev] = t[ev] // update existing element
+      } else if (f[ev]) { // if existing element has it and new one doesnt
+        f[ev] = undefined // remove it from existing element
+      }
+    }
+    var oldValue = f.value
+    var newValue = t.value
+    // copy values for form elements
+    if ((f.nodeName === 'INPUT' && f.type !== 'file') || f.nodeName === 'SELECT') {
+      if (!newValue) {
+        t.value = f.value
+      } else if (newValue !== oldValue) {
+        f.value = newValue
+      }
+    } else if (f.nodeName === 'TEXTAREA') {
+      if (t.getAttribute('value') === null) f.value = t.value
+    }
+  }
+}
+
+},{"./update-events.js":39,"bel":5,"morphdom":21}],39:[function(require,module,exports){
+module.exports = [
+  // attribute events (can be set with attributes)
+  'onclick',
+  'ondblclick',
+  'onmousedown',
+  'onmouseup',
+  'onmouseover',
+  'onmousemove',
+  'onmouseout',
+  'ondragstart',
+  'ondrag',
+  'ondragenter',
+  'ondragleave',
+  'ondragover',
+  'ondrop',
+  'ondragend',
+  'onkeydown',
+  'onkeypress',
+  'onkeyup',
+  'onunload',
+  'onabort',
+  'onerror',
+  'onresize',
+  'onscroll',
+  'onselect',
+  'onchange',
+  'onsubmit',
+  'onreset',
+  'onfocus',
+  'onblur',
+  'oninput',
+  // other common events
+  'oncontextmenu',
+  'onfocusin',
+  'onfocusout'
+]
+
+},{}],40:[function(require,module,exports){
+const yo = require('yo-yo')
+
+function writeToClipboard (str) {
+  var textarea = yo`<textarea>${str}</textarea>`
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+exports.writeToClipboard = writeToClipboard
+},{"yo-yo":58}],41:[function(require,module,exports){
+
+// Underscore.js
+// Returns a function, that, when invoked, will only be triggered at most once
+// during a given window of time. Normally, the throttled function will run
+// as much as it can, without ever going more than once per `wait` duration;
+// but if you'd like to disable the execution on the leading edge, pass
+// `{leading: false}`. To disable execution on the trailing edge, ditto.
+exports.throttle = function throttle (func, wait, options) {
+  var timeout, context, args, result;
+  var previous = 0;
+  if (!options) options = {};
+
+  var later = function() {
+    previous = options.leading === false ? 0 : Date.now();
+    timeout = null;
+    result = func.apply(context, args);
+    if (!timeout) context = args = null;
+  };
+
+  var throttled = function() {
+    var now = Date.now();
+    if (!previous && options.leading === false) previous = now;
+    var remaining = wait - (now - previous);
+    context = this;
+    args = arguments;
+    if (remaining <= 0 || remaining > wait) {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      previous = now;
+      result = func.apply(context, args);
+      if (!timeout) context = args = null;
+    } else if (!timeout && options.trailing !== false) {
+      timeout = setTimeout(later, remaining);
+    }
+    return result;
+  };
+
+  throttled.cancel = function() {
+    clearTimeout(timeout);
+    previous = 0;
+    timeout = context = args = null;
+  };
+
+  return throttled;
+}
+
+// Underscore.js
+// Returns a function, that, as long as it continues to be invoked, will not
+// be triggered. The function will be called after it stops being called for
+// N milliseconds. If `immediate` is passed, trigger the function on the
+// leading edge, instead of the trailing.
+exports.debounce = function debounce (func, wait, immediate) {
+  var timeout, result;
+
+  var later = function(context, args) {
+    timeout = null;
+    if (args) result = func.apply(context, args);
+  };
+
+  var debounced = function(...args) {
+    if (timeout) clearTimeout(timeout);
+    if (immediate) {
+      var callNow = !timeout;
+      timeout = setTimeout(later, wait);
+      if (callNow) result = func.apply(this, args);
+    } else {
+      timeout = setTimeout(() => later(this, args), wait)
+    }
+
+    return result;
+  };
+
+  debounced.cancel = function() {
+    clearTimeout(timeout);
+    timeout = null;
+  };
+
+  return debounced;
+};
+},{}],42:[function(require,module,exports){
+module.exports = {
+  ArchiveFiles: require('./model/archive-files'),
+  Archive: require('./model/archive'),
+  ArchivesList: require('./model/archives-list'),
+  DownloadsList: require('./model/downloads-list')
+}
+},{"./model/archive":44,"./model/archive-files":43,"./model/archives-list":45,"./model/downloads-list":46}],43:[function(require,module,exports){
+const co = require('co')
+
+// exported api
+// =
+
+module.exports = class ArchiveFiles {
+  constructor (archiveInfo) {
+    var m = archiveInfo.manifest
+
+    this.archiveKey = archiveInfo.key
+    // root node is the archive itself
+    this.rootNode = createRootNode(archiveInfo)
+    // current node: used by the UI for rendering
+    this.currentNode = this.rootNode
+
+    // iterate the list, recurse the path... build the tree!
+    archiveInfo.entries.forEach(e => addEntry(this.rootNode, splitPath(e.name), e))
+    function addEntry (parent, path, entry) {
+      // ignore a "root directory" if present, in favor of the one we created already
+      if (!entry.name || entry.name == '/')
+        return
+
+      // take a name off the path
+      var name = path.shift()
+
+      // add children if needed
+      parent.children = parent.children || {}
+
+      if (path.length === 0) {
+        // end of path, add entry
+        parent.children[name] = parent.children[name] || {} // only create if DNE yet
+        parent.children[name].parent = parent
+        parent.children[name].entry = entry
+        parent.children[name].entry.path = removePrecedingSlash(entry.name)
+        parent.children[name].entry.name = name
+      } else {
+        // an ancestor directory, ensure the dir exists
+        parent.children[name] = parent.children[name] || createDirectoryNode(name, parent.entry.path+name+'/', parent)
+        // descend
+        addEntry(parent.children[name], path, entry)
+      }
+    }
+
+    // recurse the tree and tally the blocks, lengths, and download amounts
+    descend(this.rootNode)
+    function descend (node) {
+      if (node.entry.type == 'directory') {
+        // reset numbers
+        node.entry.length = 0
+        node.entry.blocks = 0
+        node.entry.downloadedBlocks = 0
+      } else {
+        // calculate progress
+        node.entry.downloadedBlocks = countDownloadedBlocks(archiveInfo, node.entry)
+      }
+      
+      // iterate children
+      for (var k in node.children) {
+        descend(node.children[k])
+      }
+
+      // propagate size and progress to parent
+      if (node.parent) {
+        node.parent.entry.length += node.entry.length
+        node.parent.entry.blocks += node.entry.blocks
+        node.parent.entry.downloadedBlocks += node.entry.downloadedBlocks
+      }
+    }
+  }
+
+  setCurrentNodeByPath(names, {allowFiles}={}) {
+    this.currentNode = this.rootNode
+    if (names.length === 0 || names[0] == '')
+      return // at root
+
+    // descend to the correct node (or as far as possible)
+    for (var i=0; i < names.length; i++) {
+      var child = this.currentNode.children[names[i]]
+      if (!child || (allowFiles !== true && child.entry.type != 'directory'))
+        return // child dir not found, stop here
+      this.currentNode = child
+    }
+  }
+
+  get progress() {
+    let entry = this.rootNode.entry
+    return Math.round(entry.downloadedBlocks / entry.blocks * 100)
+  }
+
+  download(node) {
+    var self = this
+    node = node || this.rootNode
+
+    // recursively start downloads
+    co(function *() {
+      yield startDownload(node)
+    })
+
+    function * startDownload (n) {
+      // do nothing if already downloaded
+      if (n.entry.downloadedBlocks === n.entry.blocks) {
+        return Promise.resolve()
+      }
+
+      // progress starting
+      n.entry.isDownloading = true
+
+      if (n.entry.type === 'file') {
+        // download entry
+        yield datInternalAPI.downloadArchiveEntry(self.archiveKey, n.entry.path)
+      } else if (n.entry.type === 'directory') {
+        // recurse to children
+        yield Object.keys(n.children).map(k => startDownload(n.children[k]))
+      }
+
+      // done
+      n.entry.isDownloading = false
+      return Promise.resolve()
+    }
+  }
+}
+
+function createRootNode (archiveInfo) {
+  return {
+    parent: null,
+    entry: {
+      type: 'directory',
+      name: archiveInfo.title || '/',
+      path: '',
+      key: archiveInfo.key,
+      length: 0,
+      blocks: 0,
+      downloadedBlocks: 0
+    },
+    children: {}
+  }
+}
+
+function createDirectoryNode (name, path, parent) {
+  return {
+    entry: {
+      type: 'directory',
+      name,
+      path,
+      length: 0,
+      blocks: 0,
+      downloadedBlocks: 0
+    },
+    parent
+  }
+}
+
+// helper to detect if the content block is available
+function hasBlock (archiveInfo, index) {
+  var bit = index & 7
+  var byte = (index - bit) / 8
+  if (byte >= archiveInfo.contentBitfield.length) return false
+  return !!(archiveInfo.contentBitfield[byte] & (128 >> bit))
+}
+
+// helper to determine what % an entry is downloaded
+function countDownloadedBlocks (archiveInfo, entry) {
+  // count # of downloaded blocks
+  var downloadedBlocks = 0
+  var offset = entry.content.blockOffset
+  for (var i=0; i < entry.blocks; i++) {
+    if (hasBlock(archiveInfo, i + offset))
+      downloadedBlocks++
+  }
+  return downloadedBlocks
+}
+
+function removePrecedingSlash (str) {
+  return str.replace(/^\//, '')
+}
+
+function splitPath (str) {
+  if (!str || typeof str != 'string') return []
+  return str
+    .replace(/(^\/*)|(\/*$)/g, '') // skip any preceding or following slashes
+    .split('/')
+}
+},{"co":48}],44:[function(require,module,exports){
+const co = require('co')
+const emitStream = require('emit-stream')
+const EventEmitter = require('events')
+const ArchiveFiles = require('./archive-files')
+const { throttle } = require('../functions')
+
+// constants
+// =
+
+// how much time to wait between throttle emits
+const EMIT_CHANGED_WAIT = 30
+
+// globals
+// =
+
+// emit-stream for archive events, only one per document is needed
+var archivesEvents
+
+// exported api
+// =
+
+module.exports = class Archive extends EventEmitter {
+  constructor () {
+    super()
+
+    // declare attributes
+    this.info = null
+    this.files = null
+
+    // wire up events
+    if (!archivesEvents) {
+      archivesEvents = emitStream(datInternalAPI.archivesEventStream())
+    }
+    this.createEventHandlers()
+    archivesEvents.on('update-archive', this.handlers.onUpdateArchive)
+    archivesEvents.on('update-listing', this.handlers.onUpdateListing)
+    archivesEvents.on('download', this.handlers.onDownload)
+
+    // create a throttled 'change' emiter
+    this.emitChanged = throttle(() => this.emit('changed'), EMIT_CHANGED_WAIT)
+  }
+
+  fetchInfo (archiveKey) {
+    var self = this
+    return co(function * () {
+      self.info = yield datInternalAPI.getArchiveDetails(archiveKey, {
+        readme: true,
+        entries: true,
+        contentBitfield: true
+      })
+      self.files = (self.info) ? new ArchiveFiles(self.info) : null
+      console.log(self.info)
+      console.log(self.files)
+    })
+  }
+
+  destroy () {
+    // unwire events
+    this.removeAllListeners()
+    archivesEvents.removeListener('update-archive', this.handlers.onUpdateArchive)
+    archivesEvents.removeListener('update-listing', this.handlers.onUpdateListing)
+    archivesEvents.removeListener('download', this.handlers.onDownload)
+  }
+
+  // getters
+  //
+
+  get niceName () {
+    return this.info.title || 'Untitled'
+  }
+
+  get isSaved () {
+    return this.info.userSettings.isSaved
+  }
+
+  get forkOf () {
+    return this.info.forkOf && this.info.forkOf[0]
+  }
+
+  // utilities
+  // =
+
+  openInExplorer() {
+    datInternalAPI.openInExplorer(this.info.key)
+  }
+
+  toggleSaved() {
+    if (this.isSaved) {
+      datInternalAPI.setArchiveUserSettings(this.info.key, { isSaved: false }).then(settings => {
+        this.info.userSettings.isSaved = false
+        this.emitChanged()
+      })
+    } else {
+      datInternalAPI.setArchiveUserSettings(this.info.key, { isSaved: true }).then(settings => {
+        this.info.userSettings.isSaved = true
+        this.emitChanged()
+      })
+    }
+  }
+
+  updateManifest({ title, description }) {
+    // send write to the backend
+    datInternalAPI.updateArchiveManifest(this.info.key, { title, description })
+      .catch(console.warn.bind(console, 'Failed to update manifest'))
+  }
+
+  // event handlers
+  // =
+
+  createEventHandlers() {
+    this.handlers = {
+      onUpdateArchive: update => {
+        if (this.info && update.key === this.info.key) {
+          // patch the archive
+          for (var k in update)
+            this.info[k] = update[k]
+          this.emitChanged()
+        }
+      },
+      onUpdateListing: update => {
+        if (this.info && update.key === this.info.key) {
+          // simplest solution is just to refetch the entries
+          this.fetchInfo(this.info.key)
+        }
+      },
+      onDownload: update => {
+        if (this.info && update.key === this.info.key && update.feed === 'content') {
+          // increment root's downloaded blocks
+          this.files.rootNode.entry.downloadedBlocks++
+
+          // find the file and folders this update belongs to and increment their downloaded blocks
+          for (var i=0; i < this.info.entries.length; i++) {
+            var entry = this.info.entries[i]
+            var index = update.index - entry.content.blockOffset
+            if (index >= 0 && index < entry.blocks)
+              entry.downloadedBlocks++ // update the entry
+          }
+
+          this.emitChanged()
+        }
+      }
+    }
+  }
+}
+
+},{"../functions":41,"./archive-files":43,"co":48,"emit-stream":49,"events":12}],45:[function(require,module,exports){
+const co = require('co')
+const emitStream = require('emit-stream')
+const speedometer = require('speedometer')
+const EventEmitter = require('events')
+const { throttle, debounce } = require('../functions')
+
+// constants
+// =
+
+// how much time to wait between throttle emits
+const EMIT_CHANGED_WAIT = 500
+
+// globals
+// =
+
+// emit-stream for archive events, only one per document is needed
+var archivesEvents
+
+// exported api
+// =
+
+module.exports = class ArchivesList extends EventEmitter {
+  constructor () {
+    super()
+
+    // declare attributes
+    this.archives = []
+
+    // bind the event handlers
+    this.onUpdateArchive = e => this._onUpdateArchive(e)
+    this.onUpdateUserSettings = e => this._onUpdateUserSettings(e)
+
+    // wire up events
+    if (!archivesEvents) {
+      archivesEvents = emitStream(datInternalAPI.archivesEventStream())
+    }
+    archivesEvents.on('update-archive', this.onUpdateArchive)
+    archivesEvents.on('update-user-settings', this.onUpdateUserSettings)
+
+    // create a throttled 'change' emiter
+    this.emitChanged = throttle(() => this.emit('changed'), EMIT_CHANGED_WAIT)
+  }
+
+  setup ({ filter, fetchStats } = {}) {
+    var self = this
+    return co(function * () {
+      // fetch archives
+      self.archives = yield datInternalAPI.queryArchives(filter, { includeMeta: true })
+      self.archives.sort(archiveSortFn)
+      // fetch stats
+      if (fetchStats) {
+        var stats = yield Promise.all(self.archives.map(a => datInternalAPI.getArchiveStats(a.key)))
+        self.archives.forEach((archive, i) => {
+          archive.stats = stats[i]
+          archive.stats.downloadSpeed = speedometer()
+        })
+      }
+    })
+  }
+
+  destroy () {
+    // unwire events
+    this.removeAllListeners()
+    archivesEvents.removeListener('update-archive', this.onUpdateArchive)
+  }
+
+  // event handlers
+  // =
+
+  _onUpdateArchive (update) {
+    // find the archive being updated
+    var archive = this.archives.find(a => a.key === update.key)
+    if (archive) {
+      // patch the archive
+      for (var k in update)
+        archive[k] = update[k]
+      this.emitChanged()
+    }
+  }
+
+  _onUpdateUserSettings (update) {
+    // find the archive being updated
+    var archive = this.archives.find(a => a.key === update.key)
+    if (archive) {
+      // patch the archive
+      for (var k in update)
+        archive.userSettings[k] = update[k]
+      this.emitChanged()
+    }
+  }
+}
+
+// helpers
+// =
+
+function archiveSortFn (a, b) {
+  return b.mtime - a.mtime
+}
+
+},{"../functions":41,"co":48,"emit-stream":49,"events":12,"speedometer":56}],46:[function(require,module,exports){
+const co = require('co')
+const emitStream = require('emit-stream')
+const EventEmitter = require('events')
+const { writeToClipboard } = require('../events')
+
+// globals
+// =
+
+// emit-stream for download events, only one per document is needed
+var dlEvents
+
+// exported api
+// =
+
+module.exports = class DownloadsList extends EventEmitter {
+  constructor () {
+    super()
+
+    // declare attributes
+    this.downloads = []
+
+    // bind the event handlers
+    this.onNewDownload = e => this._onNewDownload(e)
+    this.onUpdateDownload = e => this._onUpdateDownload(e)
+
+    // wire up events
+    if (!dlEvents) {
+      dlEvents = emitStream(beakerDownloads.eventsStream())
+    }
+    dlEvents.on('new-download', this.onNewDownload)
+    dlEvents.on('updated', this.onUpdateDownload)
+    dlEvents.on('done', this.onUpdateDownload)
+  }
+
+  setup () {
+    var self = this
+    return co(function * () {
+      // fetch downloads
+      self.downloads = yield beakerDownloads.getDownloads()
+    })
+  }
+
+  destroy () {
+    // unwire events
+    this.removeAllListeners()
+    dlEvents.removeListener('new-download', this.onNewDownload)
+    dlEvents.removeListener('updated', this.onUpdateDownload)
+    dlEvents.removeListener('done', this.onUpdateDownload)
+  }
+
+  // actions
+  // =
+
+  pauseDownload (download) {
+    beakerDownloads.pause(download.id)
+  }
+
+  resumeDownload (download) {
+    beakerDownloads.resume(download.id)
+  }
+
+  cancelDownload (download) {
+    beakerDownloads.cancel(download.id)
+  }
+
+  copyDownloadLink (download) {
+    writeToClipboard(download.url)
+  }
+
+  showDownload (download) {
+    beakerDownloads.showInFolder(download.id)
+      .catch(err => {
+        download.fileNotFound = true
+        this.emit('changed')
+      })
+  }
+
+  openDownload (download) {
+    beakerDownloads.open(download.id)
+      .catch(err => {
+        download.fileNotFound = true
+        this.emit('changed')
+      })
+  }
+
+  removeDownload (download) {
+    beakerDownloads.remove(download.id)
+    this.downloads.splice(this.downloads.indexOf(download), 1)
+    this.emit('changed')
+  }
+
+  // event handlers
+  // =
+
+  _onNewDownload () {
+    // do a little animation
+    // TODO
+  }
+
+  _onUpdateDownload (download) {
+    // patch data each time we get an update
+    var target = this.downloads.find(d => d.id === download.id)
+    if (target) {
+      // patch item
+      for (var k in download)
+        target[k] = download[k]
+    } else {
+      this.downloads.push(download)
+    }
+    this.emit('changed')
+  }
+}
+
+},{"../events":40,"co":48,"emit-stream":49,"events":12}],47:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"global/document":50,"hyperx":53,"on-load":55}],48:[function(require,module,exports){
+arguments[4][10][0].apply(exports,arguments)
+},{"dup":10}],49:[function(require,module,exports){
+var EventEmitter = require('events').EventEmitter;
+var through = require('through');
+
+exports = module.exports = function (ev) {
+    if (typeof ev.pipe === 'function') {
+        return exports.fromStream(ev);
+    }
+    else return exports.toStream(ev)
+};
+
+exports.toStream = function (ev) {
+    var s = through(
+        function write (args) {
+            this.emit('data', args);
+        },
+        function end () {
+            var ix = ev._emitStreams.indexOf(s);
+            ev._emitStreams.splice(ix, 1);
+        }
+    );
+    
+    if (!ev._emitStreams) {
+        ev._emitStreams = [];
+        
+        var emit = ev.emit;
+        ev.emit = function () {
+            var args = [].slice.call(arguments);
+            ev._emitStreams.forEach(function (es) {
+                es.writable && es.write(args);
+            });
+            emit.apply(ev, arguments);
+        };
+    }
+    ev._emitStreams.push(s);
+    
+    return s;
+};
+
+exports.fromStream = function (s) {
+    var ev = new EventEmitter;
+    
+    s.pipe(through(function (args) {
+        ev.emit.apply(ev, args);
+    }));
+    
+    return ev;
+};
+
+},{"events":12,"through":57}],50:[function(require,module,exports){
+arguments[4][13][0].apply(exports,arguments)
+},{"dup":13,"min-document":6}],51:[function(require,module,exports){
+arguments[4][14][0].apply(exports,arguments)
+},{"dup":14}],52:[function(require,module,exports){
+arguments[4][15][0].apply(exports,arguments)
+},{"dup":15}],53:[function(require,module,exports){
+arguments[4][16][0].apply(exports,arguments)
+},{"dup":16,"hyperscript-attribute-to-property":52}],54:[function(require,module,exports){
+arguments[4][21][0].apply(exports,arguments)
+},{"dup":21}],55:[function(require,module,exports){
+arguments[4][22][0].apply(exports,arguments)
+},{"dup":22,"global/document":50,"global/window":51}],56:[function(require,module,exports){
+var tick = 1
+var maxTick = 65535
+var resolution = 4
+var inc = function () {
+  tick = (tick + 1) & maxTick
+}
+
+var timer = setInterval(inc, (1000 / resolution) | 0)
+if (timer.unref) timer.unref()
+
+module.exports = function (seconds) {
+  var size = resolution * (seconds || 5)
+  var buffer = [0]
+  var pointer = 1
+  var last = (tick - 1) & maxTick
+
+  return function (delta) {
+    var dist = (tick - last) & maxTick
+    if (dist > size) dist = size
+    last = tick
+
+    while (dist--) {
+      if (pointer === size) pointer = 0
+      buffer[pointer] = buffer[pointer === 0 ? size - 1 : pointer - 1]
+      pointer++
+    }
+
+    if (delta) buffer[pointer - 1] += delta
+
+    var top = buffer[pointer - 1]
+    var btm = buffer.length < size ? 0 : buffer[pointer === size ? 0 : pointer]
+
+    return buffer.length < resolution ? top : (top - btm) * resolution / buffer.length
+  }
+}
+
+},{}],57:[function(require,module,exports){
 (function (process){
 var Stream = require('stream')
 
@@ -7379,157 +7623,8 @@ function through (write, end, opts) {
 
 
 }).call(this,require('_process'))
-},{"_process":6,"stream":43}],46:[function(require,module,exports){
-(function (global){
-
-/**
- * Module exports.
- */
-
-module.exports = deprecate;
-
-/**
- * Mark that a method should not be used.
- * Returns a modified function which warns once by default.
- *
- * If `localStorage.noDeprecation = true` is set, then it is a no-op.
- *
- * If `localStorage.throwDeprecation = true` is set, then deprecated functions
- * will throw an Error when invoked.
- *
- * If `localStorage.traceDeprecation = true` is set, then deprecated functions
- * will invoke `console.trace()` instead of `console.error()`.
- *
- * @param {Function} fn - the function to deprecate
- * @param {String} msg - the string to print to the console when `fn` is invoked
- * @returns {Function} a new "deprecated" version of `fn`
- * @api public
- */
-
-function deprecate (fn, msg) {
-  if (config('noDeprecation')) {
-    return fn;
-  }
-
-  var warned = false;
-  function deprecated() {
-    if (!warned) {
-      if (config('throwDeprecation')) {
-        throw new Error(msg);
-      } else if (config('traceDeprecation')) {
-        console.trace(msg);
-      } else {
-        console.warn(msg);
-      }
-      warned = true;
-    }
-    return fn.apply(this, arguments);
-  }
-
-  return deprecated;
-}
-
-/**
- * Checks `localStorage` for boolean values for the given `name`.
- *
- * @param {String} name
- * @returns {Boolean}
- * @api private
- */
-
-function config (name) {
-  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
-  try {
-    if (!global.localStorage) return false;
-  } catch (_) {
-    return false;
-  }
-  var val = global.localStorage[name];
-  if (null == val) return false;
-  return String(val).toLowerCase() === 'true';
-}
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],47:[function(require,module,exports){
-var bel = require('bel') // turns template tag into DOM elements
-var morphdom = require('morphdom') // efficiently diffs + morphs two DOM elements
-var defaultEvents = require('./update-events.js') // default events to be copied when dom elements update
-
-module.exports = bel
-
-// TODO move this + defaultEvents to a new module once we receive more feedback
-module.exports.update = function (fromNode, toNode, opts) {
-  if (!opts) opts = {}
-  if (opts.events !== false) {
-    if (!opts.onBeforeElUpdated) opts.onBeforeElUpdated = copier
-  }
-
-  return morphdom(fromNode, toNode, opts)
-
-  // morphdom only copies attributes. we decided we also wanted to copy events
-  // that can be set via attributes
-  function copier (f, t) {
-    // copy events:
-    var events = opts.events || defaultEvents
-    for (var i = 0; i < events.length; i++) {
-      var ev = events[i]
-      if (t[ev]) { // if new element has a whitelisted attribute
-        f[ev] = t[ev] // update existing element
-      } else if (f[ev]) { // if existing element has it and new one doesnt
-        f[ev] = undefined // remove it from existing element
-      }
-    }
-    var oldValue = f.value
-    var newValue = t.value
-    // copy values for form elements
-    if ((f.nodeName === 'INPUT' && f.type !== 'file') || f.nodeName === 'SELECT') {
-      if (!newValue) {
-        t.value = f.value
-      } else if (newValue !== oldValue) {
-        f.value = newValue
-      }
-    } else if (f.nodeName === 'TEXTAREA') {
-      if (t.getAttribute('value') === null) f.value = t.value
-    }
-  }
-}
-
-},{"./update-events.js":48,"bel":4,"morphdom":28}],48:[function(require,module,exports){
-module.exports = [
-  // attribute events (can be set with attributes)
-  'onclick',
-  'ondblclick',
-  'onmousedown',
-  'onmouseup',
-  'onmouseover',
-  'onmousemove',
-  'onmouseout',
-  'ondragstart',
-  'ondrag',
-  'ondragenter',
-  'ondragleave',
-  'ondragover',
-  'ondrop',
-  'ondragend',
-  'onkeydown',
-  'onkeypress',
-  'onkeyup',
-  'onunload',
-  'onabort',
-  'onerror',
-  'onresize',
-  'onscroll',
-  'onselect',
-  'onchange',
-  'onsubmit',
-  'onreset',
-  'onfocus',
-  'onblur',
-  'oninput',
-  // other common events
-  'oncontextmenu',
-  'onfocusin',
-  'onfocusout'
-]
-
-},{}]},{},[1]);
+},{"_process":7,"stream":35}],58:[function(require,module,exports){
+arguments[4][38][0].apply(exports,arguments)
+},{"./update-events.js":59,"bel":47,"dup":38,"morphdom":54}],59:[function(require,module,exports){
+arguments[4][39][0].apply(exports,arguments)
+},{"dup":39}]},{},[1]);
