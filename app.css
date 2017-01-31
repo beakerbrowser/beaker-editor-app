@@ -93,7 +93,7 @@ body {
   left: 8px;
   top: 3px;
 }
-.filetree .selected {
+.filetree .item.selected {
   background: #4766ff;
   color: #fff;
 }

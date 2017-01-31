@@ -28,6 +28,10 @@ window.addEventListener('editor-created', () => {
   models.setActive(archive, 'index.html')
 })
 
+window.addEventListener('open-file', e => {
+  models.setActive(archive, e.detail.path)
+})
+
 window.addEventListener('change-model', () => {
   renderNav()
 })

@@ -3,7 +3,8 @@ require(['vs/editor/editor.main'], function() {
   window.editor = monaco.editor.create(document.getElementById('code'), {
     lineNumbersMinChars: 4,
     automaticLayout: true,
-    fixedOverflowWidgets: true
+    fixedOverflowWidgets: true,
+    roundedSelection: false
   })
   window.dispatchEvent(new Event('editor-created'))
 })

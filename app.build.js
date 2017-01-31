@@ -29,6 +29,10 @@ window.addEventListener('editor-created', () => {
   models.setActive(archive, 'index.html')
 })
 
+window.addEventListener('open-file', e => {
+  models.setActive(archive, e.detail.path)
+})
+
 window.addEventListener('change-model', () => {
   renderNav()
 })
@@ -117,7 +121,7 @@ function rDirectory (archive, node) {
 function rFile (archive, node) {
   const cls = (archive.files.currentNode === node) ? 'selected' : ''
   return yo`
-    <div class="item file ${cls}">${node.entry.name}</div>
+    <div class="item file ${cls}" onclick=${e => onClickFile(e, archive, node)}>${node.entry.name}</div>
   `
 }
 
@@ -128,6 +132,12 @@ function onClickDirectory (e, archive, node) {
   // toggle expanded
   node.isExpanded = !node.isExpanded
   redraw(archive)
+}
+
+function onClickFile (e, archive, node) {
+  var evt = new Event('open-file')
+  evt.detail = { path: node.entry.path }
+  window.dispatchEvent(evt)
 }
 
 },{"yo-yo":38}],3:[function(require,module,exports){
@@ -147,7 +157,8 @@ const load = co.wrap(function * (archive, path) {
   const res = yield fetch(url)
   const str = yield res.text()
   const type = getType(url)
-  models[path] = monaco.editor.createModel(str, type, url)
+  console.log(monaco.Uri.parse(url))
+  models[path] = monaco.editor.createModel(str, type, monaco.Uri.parse(url))
 })
 
 const setActive = co.wrap(function * (archive, path) {
@@ -181,7 +192,7 @@ function getUrl (archive, path) {
 
 function getType (url) {
   // TODO
-  return 'html'
+  return false
 }
 },{"co":10}],4:[function(require,module,exports){
 'use strict'
