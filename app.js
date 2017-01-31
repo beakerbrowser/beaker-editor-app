@@ -4,7 +4,7 @@ const {Archive} = require('builtin-pages-lib')
 const rFileTree = require('./lib/com/file-tree')
 const models = require('./lib/models')
 
-const URL = 'ff34725120b2f3c5bd5028e4f61d14a45a22af48a7b12126d5d588becde88a93'
+const URL = '469eb4ed1089ee7fa9705455ea0a372bfa5b2995e55f54bc7f2bfa4eafea114b'
 const archive = new Archive()
 
 co(function * () {
@@ -32,6 +32,13 @@ window.addEventListener('open-file', e => {
   models.setActive(archive, e.detail.path)
 })
 
-window.addEventListener('change-model', () => {
-  renderNav()
+window.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.keyCode === 83/*'S'*/) {
+    models.save(archive, archive.files.currentNode.entry.path)
+    e.preventDefault()
+  }
 })
+
+window.addEventListener('set-active-model', renderNav)
+window.addEventListener('model-dirtied', renderNav)
+window.addEventListener('model-cleaned', renderNav)

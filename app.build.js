@@ -5,7 +5,7 @@ const {Archive} = require('builtin-pages-lib')
 const rFileTree = require('./lib/com/file-tree')
 const models = require('./lib/models')
 
-const URL = 'ff34725120b2f3c5bd5028e4f61d14a45a22af48a7b12126d5d588becde88a93'
+const URL = '469eb4ed1089ee7fa9705455ea0a372bfa5b2995e55f54bc7f2bfa4eafea114b'
 const archive = new Archive()
 
 co(function * () {
@@ -33,9 +33,16 @@ window.addEventListener('open-file', e => {
   models.setActive(archive, e.detail.path)
 })
 
-window.addEventListener('change-model', () => {
-  renderNav()
+window.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.keyCode === 83/*'S'*/) {
+    models.save(archive, archive.files.currentNode.entry.path)
+    e.preventDefault()
+  }
 })
+
+window.addEventListener('set-active-model', renderNav)
+window.addEventListener('model-dirtied', renderNav)
+window.addEventListener('model-cleaned', renderNav)
 },{"./lib/com/file-tree":2,"./lib/models":3,"builtin-pages-lib":42,"co":10,"yo-yo":38}],2:[function(require,module,exports){
 const yo = require('yo-yo')
 
@@ -120,8 +127,9 @@ function rDirectory (archive, node) {
 
 function rFile (archive, node) {
   const cls = (archive.files.currentNode === node) ? 'selected' : ''
+  const isChanged = node.isChanged ? '*' : ''
   return yo`
-    <div class="item file ${cls}" onclick=${e => onClickFile(e, archive, node)}>${node.entry.name}</div>
+    <div class="item file ${cls}" onclick=${e => onClickFile(e, archive, node)}>${node.entry.name}${isChanged}</div>
   `
 }
 
@@ -136,7 +144,7 @@ function onClickDirectory (e, archive, node) {
 
 function onClickFile (e, archive, node) {
   var evt = new Event('open-file')
-  evt.detail = { path: node.entry.path }
+  evt.detail = { path: node.entry.path, node }
   window.dispatchEvent(evt)
 }
 
@@ -153,12 +161,44 @@ var models = {}
 
 const load = co.wrap(function * (archive, path) {
   path = normalizePath(path)
+
+  // lookup the file entry
+  const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
+  if (!fileNode) return console.error('Not a file on the archive')
+
+  // load the file content
   const url = getUrl(archive, path)
   const res = yield fetch(url)
   const str = yield res.text()
-  const type = getType(url)
-  console.log(monaco.Uri.parse(url))
-  models[path] = monaco.editor.createModel(str, type, monaco.Uri.parse(url))
+
+  // setup the model
+  models[path] = monaco.editor.createModel(str, null, monaco.Uri.parse(url))
+  models[path].onDidChangeContent(e => {
+    // inform the press
+    if (!fileNode.isChanged) {
+      fileNode.isChanged = true
+      const evt = new Event('model-dirtied')
+      evt.detail = {path}
+      window.dispatchEvent(evt)
+    }
+  })
+})
+
+const save = co.wrap(function * (archive, path) {
+  // lookup the file entry
+  const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
+  if (!fileNode) return console.error('Not a file on the archive')
+
+  if (!fileNode.isChanged) return
+
+  // write the file content
+  // TODO
+
+  // update state
+  fileNode.isChanged = false
+  const evt = new Event('model-cleaned')
+  evt.detail = {path}
+  window.dispatchEvent(evt)
 })
 
 const setActive = co.wrap(function * (archive, path) {
@@ -170,13 +210,12 @@ const setActive = co.wrap(function * (archive, path) {
   }
 
   // set active
-  var names = path.split('/')
-  archive.files.setCurrentNodeByPath(names, {allowFiles: true})
+  archive.files.setCurrentNodeByPath(path, {allowFiles: true})
   editor.setModel(models[path])
-  window.dispatchEvent(new Event('change-model'))
+  window.dispatchEvent(new Event('set-active-model'))
 })
 
-module.exports = {load, setActive}
+module.exports = {load, save, setActive}
 
 // internal methods
 // =
@@ -188,11 +227,6 @@ function normalizePath (path) {
 
 function getUrl (archive, path) {
   return `dat://${archive.info.key}/${path}`
-}
-
-function getType (url) {
-  // TODO
-  return false
 }
 },{"co":10}],4:[function(require,module,exports){
 'use strict'
@@ -6948,17 +6982,28 @@ module.exports = class ArchiveFiles {
     }
   }
 
-  setCurrentNodeByPath(names, {allowFiles}={}) {
-    this.currentNode = this.rootNode
+  getNodeByPath(path, {allowFiles}={}) {
+    const names = Array.isArray(path) ? path : path.split('/')
+
+    var currentNode = this.rootNode
     if (names.length === 0 || names[0] == '')
-      return // at root
+      return currentNode // at root
 
     // descend to the correct node (or as far as possible)
     for (var i=0; i < names.length; i++) {
-      var child = this.currentNode.children[names[i]]
+      var child = currentNode.children[names[i]]
       if (!child || (allowFiles !== true && child.entry.type != 'directory'))
-        return // child dir not found, stop here
-      this.currentNode = child
+        return null // not found, stop here
+      currentNode = child
+    }
+
+    return currentNode
+  }
+
+  setCurrentNodeByPath(path, opts) {
+    var node = this.getNodeByPath(path, opts)
+    if (node) {
+      this.currentNode = node
     }
   }
 

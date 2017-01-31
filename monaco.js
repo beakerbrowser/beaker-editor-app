@@ -7,4 +7,9 @@ require(['vs/editor/editor.main'], function() {
     roundedSelection: false
   })
   window.dispatchEvent(new Event('editor-created'))
+
+  // moved, probably not needed anymore
+  // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_S, () => {
+  //   window.dispatchEvent(new Event('save-current-model'))
+  // })
 })
