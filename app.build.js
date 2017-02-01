@@ -40,8 +40,8 @@ function renderNav () {
       <div class="sep"></div>
       <div class="file-info">
         ${currentNode.entry.path}${isChanged}
-        ${window.editor && editor.getModel()
-          ? yo`<span class="muted thin">${editor.getModel().getModeId()}</span>`
+        ${models.getActive()
+          ? yo`<span class="muted thin">${models.getActive().lang}</span>`
           : ''}
       </div>
       <div class="flex-fill"></div>
@@ -192,6 +192,7 @@ function onClickFile (e, archive, node) {
 
 },{"yo-yo":38}],3:[function(require,module,exports){
 const co = require('co')
+const yo = require('yo-yo')
 
 // globals
 // =
@@ -214,6 +215,8 @@ const load = co.wrap(function * (archive, path) {
     // setup the model
     models[path] = monaco.editor.createModel(str, null, monaco.Uri.parse(url))
     models[path].path = path
+    models[path].isEditable = true
+    models[path].lang = models[path].getModeId()
     models[path].onDidChangeContent(onDidChange(archive, path))
   } catch (e) {
     console.error(e)
@@ -255,15 +258,18 @@ const setActive = co.wrap(function * (archive, path) {
   try {
     path = normalizePath(path)
 
-    // load if not yet loaded
-    if (!(path in models)) {
-      yield load(archive, path)
+    // load according to editability
+    const isEditable = checkIfIsEditable(path)
+    console.log(isEditable)
+    if (isEditable) {
+      yield setEditableActive(archive, path)
+    } else {
+      yield setUneditableActive(archive, path)
     }
 
     // set active
     active = models[path]
     archive.files.setCurrentNodeByPath(path, {allowFiles: true})
-    editor.setModel(models[path])
     window.dispatchEvent(new Event('set-active-model'))
   } catch (e) {
     console.error(e)
@@ -304,7 +310,49 @@ function normalizePath (path) {
 function getUrl (archive, path) {
   return `dat://${archive.info.key}/${path}`
 }
-},{"co":10}],4:[function(require,module,exports){
+
+function checkIfIsEditable (path) {
+  // no extension?
+  if (path.split('/').pop().indexOf('.') === -1) {
+    return true // assume plaintext
+  }
+  // do we have this language?
+  const l = monaco.languages.getLanguages()
+  for (var i=0; i < l.length; i++) {
+    for (var j=0; j < l[i].extensions.length; j++) {
+      if (path.endsWith(l[i].extensions[j])) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+const setEditableActive = co.wrap(function * (archive, path) {
+  // load if not yet loaded
+  if (!(path in models)) {
+    yield load(archive, path)
+  }
+  editor.setModel(models[path])
+  document.getElementById('uneditable-container').classList.add('hidden')
+  document.getElementById('editable-container').classList.remove('hidden')
+})
+
+const setUneditableActive = co.wrap(function * (archive, path) {
+  // set the entry info
+  models[path] = {
+    path,
+    isEditable: false,
+    lang: ''
+  }
+  document.getElementById('editable-container').classList.add('hidden')  
+  yo.update(document.getElementById('uneditable-container'), yo`
+    <div id="uneditable-container">
+      <img src=${getUrl(archive, path)} />
+    </div>
+  `)
+})
+},{"co":10,"yo-yo":38}],4:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength

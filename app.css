@@ -9,6 +9,9 @@ body {
 .muted {
   color: gray;
 }
+.hidden {
+  display: none;
+}
 .thin {
   font-weight: 300;
 }
@@ -98,7 +101,12 @@ body {
   color: #fff;
 }
 
-#code {
+#editable-container,
+#uneditable-container {
   height: calc(100vh - 30px);
   width: 100%;
+}
+
+#uneditable-container {
+  padding: 0.5rem;
 }

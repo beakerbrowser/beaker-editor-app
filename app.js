@@ -39,8 +39,8 @@ function renderNav () {
       <div class="sep"></div>
       <div class="file-info">
         ${currentNode.entry.path}${isChanged}
-        ${window.editor && editor.getModel()
-          ? yo`<span class="muted thin">${editor.getModel().getModeId()}</span>`
+        ${models.getActive()
+          ? yo`<span class="muted thin">${models.getActive().lang}</span>`
           : ''}
       </div>
       <div class="flex-fill"></div>

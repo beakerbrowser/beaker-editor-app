@@ -1,6 +1,6 @@
 require.config({ paths: { 'vs': 'beaker:editor/vs' }});
 require(['vs/editor/editor.main'], function() {
-  window.editor = monaco.editor.create(document.getElementById('code'), {
+  window.editor = monaco.editor.create(document.getElementById('editable-container'), {
     lineNumbersMinChars: 4,
     automaticLayout: true,
     fixedOverflowWidgets: true,
