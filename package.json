@@ -23,7 +23,7 @@
   },
   "homepage": "https://github.com/beakerbrowser/beaker-editor-app#readme",
   "dependencies": {
-    "builtin-pages-lib": "git://github.com/beakerbrowser/builtin-pages-lib#7f77e7f69ccfbf8656d3a72db60022d5077dcb6d",
+    "builtin-pages-lib": "git://github.com/beakerbrowser/builtin-pages-lib#29a77b984fa3bf423e72e01344c2e1212a5bb620",
     "co": "^4.6.0",
     "monaco-editor": "^0.8.1",
     "yo-yo": "^1.4.0"

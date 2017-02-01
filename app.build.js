@@ -5,22 +5,50 @@ const {Archive} = require('builtin-pages-lib')
 const rFileTree = require('./lib/com/file-tree')
 const models = require('./lib/models')
 
-const URL = '469eb4ed1089ee7fa9705455ea0a372bfa5b2995e55f54bc7f2bfa4eafea114b'
+const URL = '1f968afe867f06b0d344c11efc23591c7f8c5fb3b4ac938d6000f330f6ee2a03'
 const archive = new Archive()
+archive.dirtyFiles = {} // which files have been modified?
 
 co(function * () {
   // load the archive
   console.log('Loading', URL)
   yield archive.fetchInfo(URL)
+  archive.on('changed', onArchiveChanged)
   renderNav()
+
+  // debug
+  window.models = models
+  window.archive = archive
 }).catch(console.error.bind(console, 'Failed to load'))
 
 function renderNav () {
+  // nav
   yo.update(
     document.querySelector('.layout-nav'),
     yo`<div class="layout-nav">
       <div class="sitetitle">${archive.info.title}</div>
       ${rFileTree(archive)}
+    </div>`
+  )
+  // header  
+  yo.update(
+    document.querySelector('.header'),
+    yo`<div class="header">
+      <div class="btn"><span class="icon icon-floppy"></span> Save</div>
+      <div class="sep"></div>
+      <div class="file-info">
+        ${archive.files.currentNode.entry.path}
+        ${window.editor && editor.getModel()
+          ? yo`<span class="muted thin">${editor.getModel().getModeId()}</span>`
+          : ''}
+      </div>
+      <div class="flex-fill"></div>
+      <div class="sep"></div>
+      <div class="btn"><span class="icon icon-flow-branch"></span> Fork</div>
+      <div class="sep"></div>
+      <div class="btn"><span class="icon icon-info"></span> Site Info</div>
+      <div class="sep"></div>
+      <div class="btn"><span class="icon icon-popup"></span> Open</div>
     </div>`
   )
 }
@@ -43,6 +71,13 @@ window.addEventListener('keydown', e => {
 window.addEventListener('set-active-model', renderNav)
 window.addEventListener('model-dirtied', renderNav)
 window.addEventListener('model-cleaned', renderNav)
+
+function onArchiveChanged () {
+  const activeModel = models.getActive()
+  if (!activeModel) return
+  archive.files.setCurrentNodeByPath(activeModel.path, {allowFiles: true})
+  renderNav()
+}
 },{"./lib/com/file-tree":2,"./lib/models":3,"builtin-pages-lib":42,"co":10,"yo-yo":38}],2:[function(require,module,exports){
 const yo = require('yo-yo')
 
@@ -64,19 +99,6 @@ function rFileTree (archive) {
       ${rChildren(archive, archive.files.rootNode.children)}
     </div>
   `
-    //   <div class="item folder"><span class="icon icon-right-dir"></span>css</div>
-    //   <div class="item folder"><span class="icon icon-down-dir"></span>js</div>
-    //   <div class="subtree">
-    //     <div class="item folder"><span class="icon icon-right-dir"></span>tacos</div>
-    //     <div class="item file">burger.js</div>
-    //     <div class="item file">pizza.js</div>
-    //   </div>
-    //   <div class="item file">dat.json</div>
-    //   <div class="item file">favicon.png</div>
-    //   <div class="item file">index.css</div>
-    //   <div class="item file">index.html</div>
-    //   <div class="item file selected">index.js</div>
-    // </div>
 }
 
 function rChildren (archive, children) {
@@ -127,7 +149,7 @@ function rDirectory (archive, node) {
 
 function rFile (archive, node) {
   const cls = (archive.files.currentNode === node) ? 'selected' : ''
-  const isChanged = node.isChanged ? '*' : ''
+  const isChanged = archive.dirtyFiles[node.entry.path] ? '*' : ''
   return yo`
     <div class="item file ${cls}" onclick=${e => onClickFile(e, archive, node)}>${node.entry.name}${isChanged}</div>
   `
@@ -155,70 +177,104 @@ const co = require('co')
 // =
 
 var models = {}
+var active
 
 // exported api
 // =
 
 const load = co.wrap(function * (archive, path) {
-  path = normalizePath(path)
+  try {
+    path = normalizePath(path)
 
-  // lookup the file entry
-  const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
-  if (!fileNode) return console.error('Not a file on the archive')
+    // load the file content
+    const url = getUrl(archive, path)
+    const res = yield fetch(url)
+    const str = yield res.text()
 
-  // load the file content
-  const url = getUrl(archive, path)
-  const res = yield fetch(url)
-  const str = yield res.text()
+    // setup the model
+    models[path] = monaco.editor.createModel(str, null, monaco.Uri.parse(url))
+    models[path].path = path
+    models[path].onDidChangeContent(onDidChange(archive, path))
+  } catch (e) {
+    console.error(e)
+    throw e
+  }
+})
 
-  // setup the model
-  models[path] = monaco.editor.createModel(str, null, monaco.Uri.parse(url))
-  models[path].onDidChangeContent(e => {
+const save = co.wrap(function * (archive, path) {
+  try {
+    // lookup the file entry
+    const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
+    if (!fileNode) throw new Error('Not a file on the archive')
+    const model = models[path]
+    if (!model) throw new Error('Model not found')
+
+    if (!archive.dirtyFiles[path]) return
+
+    // write the file content
+    yield datInternalAPI.writeArchiveFileFromData(
+      archive.info.key,
+      path,
+      model.getValue(),
+      {encoding: 'utf-8'}
+    )
+
+    // update state
+    archive.dirtyFiles[path] = false
+    const evt = new Event('model-cleaned')
+    evt.detail = {path}
+    window.dispatchEvent(evt)
+  } catch (e) {
+    console.log(path, models, models[path])
+    console.error(e)
+    throw e
+  }
+})
+
+const setActive = co.wrap(function * (archive, path) {
+  try {
+    path = normalizePath(path)
+
+    // load if not yet loaded
+    if (!(path in models)) {
+      yield load(archive, path)
+    }
+
+    // set active
+    active = models[path]
+    archive.files.setCurrentNodeByPath(path, {allowFiles: true})
+    editor.setModel(models[path])
+    window.dispatchEvent(new Event('set-active-model'))
+  } catch (e) {
+    console.error(e)
+    throw e
+  }
+})
+
+function getActive () {
+  return active
+}
+
+module.exports = {load, save, setActive, getActive}
+
+// internal methods
+// =
+
+function onDidChange (archive, path) {
+  return e => {
+    // lookup the file entry
+    const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
+    if (!fileNode) throw new Error('Not a file on the archive')
+
     // inform the press
-    if (!fileNode.isChanged) {
-      fileNode.isChanged = true
+    if (!archive.dirtyFiles[path]) {
+      archive.dirtyFiles[path] = true
       const evt = new Event('model-dirtied')
       evt.detail = {path}
       window.dispatchEvent(evt)
     }
-  })
-})
-
-const save = co.wrap(function * (archive, path) {
-  // lookup the file entry
-  const fileNode = archive.files.getNodeByPath(path, {allowFiles: true})
-  if (!fileNode) return console.error('Not a file on the archive')
-
-  if (!fileNode.isChanged) return
-
-  // write the file content
-  // TODO
-
-  // update state
-  fileNode.isChanged = false
-  const evt = new Event('model-cleaned')
-  evt.detail = {path}
-  window.dispatchEvent(evt)
-})
-
-const setActive = co.wrap(function * (archive, path) {
-  path = normalizePath(path)
-
-  // load if not yet loaded
-  if (!(path in models)) {
-    yield load(archive, path)
   }
-
-  // set active
-  archive.files.setCurrentNodeByPath(path, {allowFiles: true})
-  editor.setModel(models[path])
-  window.dispatchEvent(new Event('set-active-model'))
-})
-
-module.exports = {load, save, setActive}
-
-// internal methods
-// =
+}
 
 function normalizePath (path) {
   if (path.startsWith('/')) return path.slice(1)
@@ -7159,6 +7215,7 @@ module.exports = class Archive extends EventEmitter {
       self.files = (self.info) ? new ArchiveFiles(self.info) : null
       console.log(self.info)
       console.log(self.files)
+      self.emitChanged()
     })
   }
 
@@ -7226,6 +7283,7 @@ module.exports = class Archive extends EventEmitter {
         }
       },
       onUpdateListing: update => {
+        console.log(update)
         if (this.info && update.key === this.info.key) {
           // simplest solution is just to refetch the entries
           this.fetchInfo(this.info.key)
