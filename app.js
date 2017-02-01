@@ -29,14 +29,16 @@ function renderNav () {
       ${rFileTree(archive)}
     </div>`
   )
-  // header  
+  // header
+  const currentNode = archive.files.currentNode
+  const isChanged = archive.dirtyFiles[currentNode.entry.path] ? '*' : ''
   yo.update(
     document.querySelector('.header'),
     yo`<div class="header">
       <div class="btn"><span class="icon icon-floppy"></span> Save</div>
       <div class="sep"></div>
       <div class="file-info">
-        ${archive.files.currentNode.entry.path}
+        ${currentNode.entry.path}${isChanged}
         ${window.editor && editor.getModel()
           ? yo`<span class="muted thin">${editor.getModel().getModeId()}</span>`
           : ''}
